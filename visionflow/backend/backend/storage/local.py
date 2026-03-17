@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -13,11 +14,18 @@ from .base import ABCStorage
 
 class LocalStorage(ABCStorage):
     def __init__(self, base_dir: Path) -> None:
-        self._base = base_dir
+        self._base = base_dir.resolve()
         self._base.mkdir(parents=True, exist_ok=True)
 
     def _resolve(self, path: str) -> Path:
         return self._base / path
+
+    def resolve_path(self, path: str) -> Path:
+        """Resolve path safely, raising ValueError on path traversal attempts."""
+        resolved = (self._base / path).resolve()
+        if not str(resolved).startswith(str(self._base)):
+            raise ValueError(f"Path traversal detected: {path}")
+        return resolved
 
     async def read_json(self, path: str) -> dict | None:
         p = self._resolve(path)
@@ -31,8 +39,9 @@ class LocalStorage(ABCStorage):
         p = self._resolve(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         tmp_fd, tmp_path = tempfile.mkstemp(dir=p.parent, suffix=".tmp")
+        os.close(tmp_fd)  # close immediately; reopen by path via aiofiles
         try:
-            async with aiofiles.open(tmp_fd, "w", encoding="utf-8") as f:
+            async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
                 await f.write(json.dumps(data, ensure_ascii=False, default=str))
             Path(tmp_path).replace(p)
         except Exception:

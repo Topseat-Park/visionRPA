@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import { PreRecordForm } from '@/components/record/pre-record-form';
 import { RecordingControls } from '@/components/record/recording-controls';
 import { EventTimeline } from '@/components/record/event-timeline';
@@ -7,11 +8,14 @@ import { useRecordingStore } from '@/stores/recording-store';
 import { useAgentStatus } from '@/hooks/use-agent-status';
 import { api } from '@/lib/api-client';
 import type { SessionMeta } from '@/types/session';
+import type { Workflow } from '@/types/workflow';
 
 export function RecordPage() {
+  const navigate = useNavigate();
   const { step, setStep, sessionId, setSessionId, preRecordData, recordingStartedAt, markRecordingStarted, reset } =
     useRecordingStore();
   const { data: agentStatus } = useAgentStatus();
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
   // Reset to pre-record if agent is not recording and we're stuck in an old state.
   // Grace period: skip for the first 5 seconds after recording started to avoid
@@ -113,10 +117,19 @@ export function RecordPage() {
       {step === 'timeline' && sessionId && (
         <EventTimeline
           sessionId={sessionId}
-          onGenerate={() => {
+          onGenerate={async () => {
             setStep('generating');
-            // Phase 2: will call POST /workflows/generate here
-            setTimeout(() => setStep('done'), 2000);
+            setGenerateError(null);
+            try {
+              const wf = await api.post<Workflow>('/workflows/generate', {
+                session_id: sessionId,
+              });
+              reset();
+              navigate({ to: '/workflows/$workflowId', params: { workflowId: wf.workflow_id } });
+            } catch (e) {
+              setGenerateError(e instanceof Error ? e.message : 'Generation failed');
+              setStep('timeline');
+            }
           }}
         />
       )}
@@ -133,27 +146,14 @@ export function RecordPage() {
         </div>
       )}
 
+      {generateError && (
+        <p className="text-sm text-destructive">{generateError}</p>
+      )}
+
       {step === 'generating' && (
         <div className="flex flex-col items-center gap-4 py-12">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-          <p className="text-muted-foreground">
-            AI is analyzing your recording...
-          </p>
-        </div>
-      )}
-
-      {step === 'done' && (
-        <div className="flex flex-col items-center gap-4 py-12">
-          <p className="text-lg font-semibold">Workflow generated!</p>
-          <p className="text-muted-foreground">
-            Phase 2 will add the workflow editor here.
-          </p>
-          <button
-            className="mt-2 text-sm text-primary underline"
-            onClick={() => reset()}
-          >
-            Record another workflow
-          </button>
+          <p className="text-muted-foreground">Generating workflow from recording...</p>
         </div>
       )}
     </div>

@@ -8,8 +8,8 @@ from datetime import datetime, timezone
 
 import psutil
 
-from shared.enums import AgentState
-from shared.ipc_models import AgentStatus, RecordingDetails, SystemInfo
+from shared.enums import AgentState, RunStatus
+from shared.ipc_models import AgentStatus, RecordingDetails, ReplayDetails, SystemInfo
 
 from ..ipc.base import ABCTransport
 from ..recorder.engine import RecordingEngine
@@ -24,10 +24,12 @@ class Heartbeat:
         self,
         transport: ABCTransport,
         recorder: RecordingEngine,
+        replayer,  # ReplayEngine — avoid circular import
         interval: float = 1.0,
     ) -> None:
         self._transport = transport
         self._recorder = recorder
+        self._replayer = replayer
         self._interval = interval
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -64,12 +66,12 @@ class Heartbeat:
     def _build_status(self) -> AgentStatus:
         from shared.enums import RecordingState
 
-        # Determine agent state from recorder
+        # Determine agent state (recorder takes priority over replayer)
         rec_state = self._recorder.state
-        if rec_state == RecordingState.RECORDING:
+        if rec_state in (RecordingState.RECORDING, RecordingState.PAUSED):
             agent_state = AgentState.RECORDING
-        elif rec_state == RecordingState.PAUSED:
-            agent_state = AgentState.RECORDING  # still conceptually recording
+        elif self._replayer.is_running:
+            agent_state = AgentState.REPLAYING
         else:
             agent_state = AgentState.ONLINE
 
@@ -79,6 +81,16 @@ class Heartbeat:
                 session_id=self._recorder.session_id,
                 event_count=self._recorder.event_count,
                 elapsed_seconds=round(self._recorder.elapsed_seconds, 1),
+            )
+
+        replay = None
+        if self._replayer.is_running and self._replayer.run_id:
+            replay = ReplayDetails(
+                run_id=self._replayer.run_id,
+                workflow_id=self._replayer.workflow_id or "",
+                current_step=self._replayer.current_step,
+                total_steps=self._replayer.total_steps,
+                step_description=self._replayer.step_description,
             )
 
         process = psutil.Process()
@@ -99,6 +111,7 @@ class Heartbeat:
             last_command_id=self._last_command_id,
             last_command_ack=True,
             recording=recording,
+            replay=replay,
             system=sys_info,
             error=self._error,
         )

@@ -31,6 +31,11 @@ async def get_agent_status(
         recording_session_id=status.recording.session_id if status.recording else None,
         recording_event_count=status.recording.event_count if status.recording else 0,
         recording_elapsed=status.recording.elapsed_seconds if status.recording else 0,
+        replay_run_id=status.replay.run_id if status.replay else None,
+        replay_workflow_id=status.replay.workflow_id if status.replay else None,
+        replay_current_step=status.replay.current_step if status.replay else 0,
+        replay_total_steps=status.replay.total_steps if status.replay else 0,
+        replay_step_description=status.replay.step_description if status.replay else None,
         error=status.error,
     )
 

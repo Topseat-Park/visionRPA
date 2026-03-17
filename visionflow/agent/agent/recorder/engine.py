@@ -13,7 +13,7 @@ from shared.event_models import SessionMeta
 from ..config import AgentConfig
 from ..storage.paths import DataPaths
 from .listeners import InputListeners
-from .screenshot import capture_screen, save_screenshot
+from .screenshot import capture_screen
 from .session_writer import SessionWriter
 
 logger = logging.getLogger(__name__)
@@ -127,14 +127,13 @@ class RecordingEngine:
         assert self._listeners is not None
         assert self._writer is not None
 
-        last_event_type: str | None = None
-
         while not self._stop_event.is_set():
-            # Check typing debounce flush
-            if self._listeners._type_buffer:
-                elapsed = time.time() - self._listeners._type_last_time
-                if elapsed > self._listeners._TYPE_DEBOUNCE:
-                    self._listeners._flush_type_buffer()
+            # Check typing debounce flush (lock-protected access to buffer state)
+            with self._listeners._type_lock:
+                if self._listeners._type_buffer:
+                    elapsed = time.time() - self._listeners._type_last_time
+                    if elapsed > self._listeners._TYPE_DEBOUNCE:
+                        self._listeners._flush_type_buffer_locked()
 
             try:
                 raw = self._listeners.event_queue.get(timeout=0.1)
@@ -176,8 +175,7 @@ class RecordingEngine:
                 event_dict["screenshot_meta"] = screenshot_meta
 
             self._writer.append_event(event_dict)
-            last_event_type = raw_type
 
-        # Final flush of type buffer
-        if self._listeners and self._listeners._type_buffer:
+        # Final flush of type buffer (lock-protected)
+        if self._listeners:
             self._listeners._flush_type_buffer()

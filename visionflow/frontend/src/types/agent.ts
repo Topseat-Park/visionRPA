@@ -12,6 +12,11 @@ export interface AgentStatus {
   recording_session_id: string | null;
   recording_event_count: number;
   recording_elapsed: number;
+  replay_run_id: string | null;
+  replay_workflow_id: string | null;
+  replay_current_step: number;
+  replay_total_steps: number;
+  replay_step_description: string | null;
   error: string | null;
 }
 

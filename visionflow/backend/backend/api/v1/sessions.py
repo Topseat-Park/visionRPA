@@ -89,7 +89,10 @@ async def get_screenshot(
     filename: str,
     storage: LocalStorage = Depends(get_storage),
 ) -> FileResponse:
-    path = storage._resolve(f"sessions/{session_id}/screenshots/{filename}")
+    try:
+        path = storage.resolve_path(f"sessions/{session_id}/screenshots/{filename}")
+    except ValueError:
+        raise HTTPException(400, "Invalid path")
     if not path.exists():
         raise HTTPException(404, "Screenshot not found")
     return FileResponse(path, media_type="image/jpeg")

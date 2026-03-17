@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import signal
-import sys
 import time
 import uuid
 from datetime import datetime, timezone
@@ -21,6 +20,7 @@ from .config import AgentConfig, get_config
 from .ipc.file_transport import FileTransport
 from .monitor.heartbeat import Heartbeat
 from .recorder.engine import RecordingEngine
+from .replayer.engine import ReplayEngine
 from .storage.paths import DataPaths
 
 logging.basicConfig(
@@ -40,8 +40,9 @@ class Agent:
 
         self._transport = FileTransport(self._paths)
         self._recorder = RecordingEngine(config, self._paths)
+        self._replayer = ReplayEngine(self._paths)
         self._heartbeat = Heartbeat(
-            self._transport, self._recorder, config.heartbeat_interval
+            self._transport, self._recorder, self._replayer, config.heartbeat_interval
         )
         self._running = False
 
@@ -77,6 +78,10 @@ class Agent:
                     self._recorder.resume()
                 case CommandType.STOP_RECORDING:
                     self._recorder.stop()
+                case CommandType.START_RUN:
+                    self._start_run(cmd)
+                case CommandType.ABORT_RUN:
+                    self._replayer.abort()
                 case CommandType.PING:
                     pass  # heartbeat will respond
                 case _:
@@ -101,6 +106,16 @@ class Agent:
             has_sensitive_info=cmd.payload.get("has_sensitive_info", False),
         )
         self._recorder.start(session_id, meta)
+
+    def _start_run(self, cmd: AgentCommand) -> None:
+        run_id = cmd.payload.get("run_id", f"run_{uuid.uuid4().hex[:8]}")
+        workflow_id = cmd.payload.get("workflow_id", "")
+        if not workflow_id:
+            raise ValueError("start_run requires workflow_id in payload")
+        # Reset replayer if a previous run completed
+        if not self._replayer.is_running:
+            self._replayer.reset()
+        self._replayer.start(run_id, workflow_id)
 
     def _shutdown(self) -> None:
         if self._recorder.state in (RecordingState.RECORDING, RecordingState.PAUSED):

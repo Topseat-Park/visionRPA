@@ -1,0 +1,16 @@
+[project]
+name = "visionflow"
+version = "0.1.0"
+description = "VisionFlow — AI-powered screen recording & replay automation"
+requires-python = ">=3.11"
+dependencies = [
+    "visionflow-shared",
+    "visionflow-backend",
+]
+
+[tool.uv.workspace]
+members = ["shared", "backend", "agent"]
+
+[tool.uv.sources]
+visionflow-shared = { workspace = true }
+visionflow-backend = { workspace = true }

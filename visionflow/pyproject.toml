@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "visionflow-shared",
     "visionflow-backend",
+    "visionflow-agent",
 ]
 
 [tool.uv.workspace]
@@ -14,3 +15,4 @@ members = ["shared", "backend", "agent"]
 [tool.uv.sources]
 visionflow-shared = { workspace = true }
 visionflow-backend = { workspace = true }
+visionflow-agent = { workspace = true }

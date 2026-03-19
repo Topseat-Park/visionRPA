@@ -25,6 +25,12 @@ class WorkflowStep(BaseModel):
     speed: SpeedMode = SpeedMode.NORMAL
     on_failure: OnFailure = OnFailure.HUMAN
     screenshot_ref: str | None = None
+    fallback_coords: dict[str, int] | None = Field(
+        None, description="Fallback pixel coordinates {x, y} from original recording (vision_click)"
+    )
+    crop_ref: str | None = Field(
+        None, description="Path to crop image around click point (for OpenCV template matching)"
+    )
 
 
 class Workflow(BaseModel):

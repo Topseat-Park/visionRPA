@@ -2,6 +2,10 @@
 
 Runs the IPC command loop: polls for commands from Dashboard,
 dispatches to recorder/replayer, and publishes status via heartbeat.
+
+Global hotkeys:
+  F9  — Toggle recording (start new / pause / resume)
+  F10 — Stop recording
 """
 
 from __future__ import annotations
@@ -22,6 +26,10 @@ from .monitor.heartbeat import Heartbeat
 from .recorder.engine import RecordingEngine
 from .replayer.engine import ReplayEngine
 from .storage.paths import DataPaths
+from .ui.desktop import minimize_all_windows, restore_minimized_windows
+from .ui.hotkeys import GlobalHotkeys
+from .ui.overlay import RecordingOverlay
+from .ui.tooltip import HelpTooltip
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,7 +39,7 @@ logger = logging.getLogger("visionflow.agent")
 
 
 class Agent:
-    """Top-level agent that ties together IPC, recorder, and heartbeat."""
+    """Top-level agent that ties together IPC, recorder, hotkeys, and heartbeat."""
 
     def __init__(self, config: AgentConfig) -> None:
         self._config = config
@@ -44,13 +52,24 @@ class Agent:
         self._heartbeat = Heartbeat(
             self._transport, self._recorder, self._replayer, config.heartbeat_interval
         )
+
+        # UI components
+        self._overlay = RecordingOverlay(monitor_index=config.default_monitor)
+        self._tooltip = HelpTooltip()
+        self._hotkeys = GlobalHotkeys(
+            on_f9=self._on_hotkey_f9,
+            on_f10=self._on_hotkey_f10,
+        )
+
         self._running = False
 
     def run(self) -> None:
         """Main loop — poll for commands and dispatch."""
         self._running = True
         self._heartbeat.start()
+        # Hotkeys are NOT registered on startup — only during active recording
         logger.info("Agent started. Data dir: %s", self._config.data_dir.resolve())
+        logger.info("Hotkeys (F9/F10) will activate when recording starts")
 
         try:
             while self._running:
@@ -73,11 +92,11 @@ class Agent:
                 case CommandType.START_RECORDING:
                     self._start_recording(cmd)
                 case CommandType.PAUSE_RECORDING:
-                    self._recorder.pause()
+                    self._pause_recording()
                 case CommandType.RESUME_RECORDING:
-                    self._recorder.resume()
+                    self._resume_recording()
                 case CommandType.STOP_RECORDING:
-                    self._recorder.stop()
+                    self._stop_recording()
                 case CommandType.START_RUN:
                     self._start_run(cmd)
                 case CommandType.ABORT_RUN:
@@ -89,6 +108,8 @@ class Agent:
         except Exception as e:
             logger.exception("Error handling command %s", cmd.type)
             self._heartbeat.set_error(str(e))
+
+    # ── Recording with overlay ──────────────────────────────────
 
     def _start_recording(self, cmd: AgentCommand) -> None:
         # Reset if previous recording completed
@@ -105,26 +126,101 @@ class Agent:
             exception_notes=cmd.payload.get("exception_notes"),
             has_sensitive_info=cmd.payload.get("has_sensitive_info", False),
         )
+
+        # Minimize all windows for a clean recording surface
+        if cmd.payload.get("minimize_windows", True):
+            minimize_all_windows()
+
         self._recorder.start(session_id, meta)
+        self._overlay.start()
+        self._tooltip.start()
+        self._hotkeys.start()
+        logger.info("Hotkeys activated (F9=pause/resume, F10=stop)")
+
+    def _pause_recording(self) -> None:
+        self._recorder.pause()
+        self._overlay.stop()
+        self._tooltip.stop()
+
+    def _resume_recording(self) -> None:
+        self._recorder.resume()
+        self._overlay.start()
+        self._tooltip.start()
+
+    def _stop_recording(self) -> None:
+        self._hotkeys.stop()
+        self._recorder.stop()
+        self._overlay.stop()
+        self._tooltip.stop()
+        restore_minimized_windows()
+        logger.info("Hotkeys deactivated")
+
+    # ── Global hotkey handlers (only active during recording) ──
+
+    def _on_hotkey_f9(self) -> None:
+        """F9: Pause / resume (only works during active recording)."""
+        state = self._recorder.state
+
+        if state == RecordingState.RECORDING:
+            self._recorder.pause()
+            self._overlay.stop()
+            self._tooltip.stop()
+            logger.info("F9: Recording paused")
+
+        elif state == RecordingState.PAUSED:
+            self._recorder.resume()
+            self._overlay.start()
+            self._tooltip.start()
+            logger.info("F9: Recording resumed")
+
+    def _on_hotkey_f10(self) -> None:
+        """F10: Stop recording."""
+        state = self._recorder.state
+        if state in (RecordingState.RECORDING, RecordingState.PAUSED):
+            self._stop_recording()
+            logger.info("F10: Recording stopped")
+        else:
+            logger.info("F10: No active recording to stop")
+
+    # ── Run management ──────────────────────────────────────────
 
     def _start_run(self, cmd: AgentCommand) -> None:
         run_id = cmd.payload.get("run_id", f"run_{uuid.uuid4().hex[:8]}")
         workflow_id = cmd.payload.get("workflow_id", "")
+        mode = cmd.payload.get("mode", "normal")
         if not workflow_id:
             raise ValueError("start_run requires workflow_id in payload")
         # Reset replayer if a previous run completed
         if not self._replayer.is_running:
             self._replayer.reset()
-        self._replayer.start(run_id, workflow_id)
+        self._replayer.start(run_id, workflow_id, mode=mode)
+
+    # ── Shutdown ────────────────────────────────────────────────
 
     def _shutdown(self) -> None:
         if self._recorder.state in (RecordingState.RECORDING, RecordingState.PAUSED):
             self._recorder.stop()
+        self._overlay.stop()
+        self._tooltip.stop()
+        self._hotkeys.stop()
         self._heartbeat.stop()
         logger.info("Agent shutdown complete")
 
 
+def _enable_dpi_awareness() -> None:
+    """Declare DPI awareness so overlay coordinates match physical pixels."""
+    import ctypes
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # Per-Monitor V2
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+
 def main() -> None:
+    _enable_dpi_awareness()
     config = get_config()
     agent = Agent(config)
 

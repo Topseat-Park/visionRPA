@@ -13,6 +13,7 @@ dependencies = [
     "psutil>=5.9",
     "pywin32>=306",
     "Pillow>=10.0",
+    "opencv-python-headless>=4.8",
     "visionflow-shared",
 ]
 

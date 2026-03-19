@@ -16,7 +16,15 @@ logger = logging.getLogger(__name__)
 class FileTransport(ABCTransport):
     def __init__(self, paths: DataPaths) -> None:
         self._paths = paths
-        self._last_command_id: str | None = None
+        # Read existing command id on startup to avoid re-executing stale commands
+        self._last_command_id: str | None = self._read_current_command_id()
+
+    def _read_current_command_id(self) -> str | None:
+        """Read the current command.json id so we skip it on startup."""
+        data = read_json_safe(self._paths.command_file)
+        if data and isinstance(data, dict):
+            return data.get("id")
+        return None
 
     def poll_command(self) -> AgentCommand | None:
         """Read command.json — return command only if id is new."""

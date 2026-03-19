@@ -29,6 +29,10 @@ class SessionWriter:
     def write_meta(self, meta: SessionMeta) -> None:
         write_json_atomic(self._meta_file, meta.model_dump(mode="json"))
 
+    def write_meta_dict(self, meta_dict: dict) -> None:
+        """Write meta from a plain dict (allows extra fields like open_windows)."""
+        write_json_atomic(self._meta_file, meta_dict)
+
     def append_event(self, event_dict: dict) -> None:
         append_jsonl(self._events_file, event_dict)
 

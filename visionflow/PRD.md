@@ -537,7 +537,7 @@ visionflow_data/             ← PoC: 로컬 폴더 (GCS 전환 시 동일 구�
 
 ## 13. PoC 완료 기준
 
-### Phase 1 — Record (구현 완료)
+### Phase 1 — Record + 기본 Replay (부분 완료)
 - [x] 이벤트 8종 캡처 + 이벤트 전처리
 - [x] 사전 입력 UI + meta.json 저장
 - [x] 일시정지/재개
@@ -545,25 +545,65 @@ visionflow_data/             ← PoC: 로컬 폴더 (GCS 전환 시 동일 구�
 - [x] 파일 기반 IPC (command.json / status.json)
 - [x] FastAPI 백엔드 + React 대시보드
 - [x] 규칙 기반 워크플로우 생성 (이벤트 → 스텝 변환)
-- [x] pyautogui 기반 재실행 엔진
+- [x] pyautogui 기반 재실행 엔진 (기본 동작)
 
-### Phase 2 — Understand (예정)
-- [ ] Gemini 3 Flash 연동 (google-genai SDK)
-- [ ] 실행 방식 우선순위 계층 프롬프트 (cmd 우선)
-- [ ] 워크플로우 생성 후 요약 리포트
-- [ ] vision_click에 실제 이미지 기반 타겟 설명 추가
+### Phase 1.5 — UI 완성도 + Replay 안정성 (진행 중)
+- [x] 이벤트 타임라인 스크린샷 확대 보기 (클릭 → 풀스크린)
+- [x] 워크플로우 편집 페이지 (스텝 편집/삭제/순서변경/저장/버전이력)
+- [x] on_failure=retry 실제 재시도 (최대 3회, 점진적 백오프)
+- [x] 스텝별 timeout 적용 (ThreadPoolExecutor)
+- [x] 스텝별 before/after 스크린샷 캡처
+- [x] wait 스텝 abort 대응 (0.5초 단위 체크)
+- [x] 실행 이력 페이지 (목록 + 상태 필터 + 상세 보기)
+- [x] 실행 실패 시 상세 에러 정보 (스텝 컨텍스트)
+- [x] Run 시작 후 모니터 페이지 자동 이동 (useNavigate + onSuccess)
+- [x] Run Monitor polling 10분 타임아웃 (무한 루프 방지 + 경고 UI)
+- [x] 서버 재시작 시 orphan run 자동 정리 (5분 이상 pending/running → aborted)
+- [x] screenshot.py DPI 중복 호출 제거 + 캐싱
+- [x] 워크플로우 저장 시 step id 정규화 (1부터 재할당)
+- [x] Generate 중복/빈 세션 방지 (409/400) + 에러 핸들링
+- [x] click/double_click 스텝에 fallback_coords 추가
+- **완료 기준**: 워크플로우 편집→저장→재실행→이력 확인 전체 흐름 동작
+
+### Phase 2 — Understand (완료)
+- [x] Gemini 3 Flash 연동 (google-genai SDK)
+- [x] 실행 방식 우선순위 계층 프롬프트 (cmd 우선)
+- [x] 워크플로우 생성 후 요약 리포트
+- [x] vision_click에 실제 이미지 기반 타겟 설명 추가
 - **완료 기준**: 10개 이벤트 → 의미 있는 워크플로우 + 요약 리포트
 
-### Phase 3 — Replay 고도화 (예정)
+### Phase 2.5 — 엔터프라이즈 앱 컨텍스트 인식 강화 (완료)
+- [x] 녹화 중 활성 창 추적 — 모든 이벤트에 `active_window` 필드, 창 전환 시 `window_change` 자동 삽입
+- [x] `focus_window` 스텝 타입 — 이미 열린 앱 창을 찾아서 전면 활성화 (OTP 세션 재활용)
+- [x] Gemini 프롬프트 앱 컨텍스트 규칙 — 브라우저/Office/Outlook 시나리오 대응
+- [x] Gemini 스키마 + 프론트엔드 UI — focus_window enum, 라벨, 색상, 도움말
+- [x] 녹화 시작 시 열린 창 목록 스냅샷 — meta.json `open_windows` 필드
+- [x] OpenCV 템플릿 매칭 — vision_click 3단계 fallback (AI → OpenCV → 좌표)
+- [x] `crop_ref` 필드 — 워크플로우 스텝에 크롭 이미지 경로 저장
+- **완료 기준**: 녹화 중 앱 전환 감지 + focus_window 스텝 생성/실행 가능 + 창 이동 시에도 OpenCV로 클릭 위치 정확 탐지
+
+### Phase 3 — Replay 고도화 (진행 중)
 - [ ] vision_click Human-in-the-Loop UI
-- [ ] 스마트 대기 + Gemini 자율 분기
-- [ ] 결과 검증 (success/failure)
-- [ ] 실패 자가 진단 리포트
-- [ ] 드라이런 모드
+- [x] 스마트 대기 (wait_condition 1초 간격 폴링 루프)
+- [ ] Gemini 자율 분기
+- [x] 결과 검증 (success/failure) — Gemini 기반 최종 화면 검증 + verification.json
+- [x] 실패 자가 진단 리포트 — Gemini 기반 원인 분석 + 수정 제안 + diagnosis.json
+- [x] 드라이런 모드 — 실제 실행 없이 vision_click 좌표 탐지 결과 반환
 - [ ] 스텝별 [단독 테스트]
 - **완료 기준**: 동일 PC 재실행 성공률 ≥ 70% + 실패 진단 리포트 생성
 
-### Phase 4 — 운영 안정화 (예정)
+### Phase 4 — MCP + LangChain AI 에이전트 (예정)
+- [ ] LangChain + LangGraph ReAct 에이전트 루프 도입
+- [ ] langchain-mcp-adapters로 MCP 서버 연결
+- [ ] @playwright/mcp 연동 — 브라우저 자동화 (접근성 트리 기반)
+- [ ] @modelcontextprotocol/server-filesystem 연동 — 파일 작업
+- [ ] 기존 비전 방식(스크린샷+pyautogui)과 MCP 도구 하이브리드 선택
+  - 브라우저 작업 → Playwright MCP (접근성 트리, 빠르고 정확)
+  - 네이티브 앱/RDP → 기존 비전 방식 (스크린샷+Gemini)
+- [ ] 챗봇 인터페이스에서 자연어 명령으로 워크플로우 실행
+- **완료 기준**: "사이트에서 검색 후 파일 다운로드 → 수정" 시나리오 E2E 동작
+
+### Phase 5 — 운영 안정화 (예정)
 - [ ] 스케줄링 (크론 기반 자동 실행)
 - [ ] GCS 스토리지 전환
 - [ ] 다중 Agent 지원

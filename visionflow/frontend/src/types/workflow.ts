@@ -6,7 +6,10 @@ export type StepType =
   | 'navigate'
   | 'scroll'
   | 'drag'
-  | 'wait';
+  | 'wait'
+  | 'file_open'
+  | 'file_write'
+  | 'focus_window';
 
 export type OnFailure = 'retry' | 'human' | 'skip' | 'abort';
 export type SpeedMode = 'fast' | 'normal' | 'slow';
@@ -23,6 +26,7 @@ export interface WorkflowStep {
   speed: SpeedMode;
   on_failure: OnFailure;
   screenshot_ref?: string | null;
+  crop_ref?: string | null;
 }
 
 export interface Workflow {
@@ -33,6 +37,20 @@ export interface Workflow {
   last_successful_version?: number | null;
   default_speed: SpeedMode;
   steps: WorkflowStep[];
+}
+
+export interface WorkflowSummary {
+  flow_summary: string;
+  attention_steps: string[];
+  improvement_suggestions: string[];
+  recommended_first_run: 'dryrun' | 'manual' | 'auto';
+  estimated_duration_sec?: number | null;
+}
+
+export interface GenerateWorkflowResponse {
+  workflow: Workflow;
+  summary: WorkflowSummary | null;
+  generation_method: 'ai' | 'rule_based';
 }
 
 export interface WorkflowListItem {

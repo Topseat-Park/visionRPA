@@ -9,11 +9,11 @@ import {
 } from 'lucide-react';
 
 const NAV_ITEMS = [
-  { to: '/' as const, label: 'Home', icon: Home },
-  { to: '/record' as const, label: 'Record', icon: Mic },
-  { to: '/runs' as const, label: 'Run History', icon: History },
-  { to: '/schedules' as const, label: 'Schedules', icon: Clock },
-  { to: '/settings' as const, label: 'Settings', icon: Settings },
+  { to: '/' as const, label: '워크플로우', icon: Home },
+  { to: '/record' as const, label: '녹화', icon: Mic },
+  { to: '/runs' as const, label: '실행 이력', icon: History },
+  { to: '/schedules' as const, label: '스케줄', icon: Clock },
+  { to: '/settings' as const, label: '설정', icon: Settings },
 ];
 
 export function Sidebar() {

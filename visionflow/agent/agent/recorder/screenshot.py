@@ -14,20 +14,26 @@ from shared.event_models import ScreenshotMeta
 
 logger = logging.getLogger(__name__)
 
+_cached_dpi_scale: float | None = None
+
 
 def get_dpi_scale() -> float:
-    """Get Windows DPI scaling factor via ctypes."""
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
-    except Exception:
-        pass
+    """Get Windows DPI scaling factor via ctypes (cached after first call).
+
+    DPI awareness is set once in main.py at startup — no need to call
+    SetProcessDpiAwareness here.
+    """
+    global _cached_dpi_scale
+    if _cached_dpi_scale is not None:
+        return _cached_dpi_scale
     try:
         hdc = ctypes.windll.user32.GetDC(0)
         dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)  # LOGPIXELSX
         ctypes.windll.user32.ReleaseDC(0, hdc)
-        return dpi / 96.0
+        _cached_dpi_scale = dpi / 96.0
     except Exception:
-        return 1.0
+        _cached_dpi_scale = 1.0
+    return _cached_dpi_scale
 
 
 def capture_screen(
@@ -79,3 +85,29 @@ def save_screenshot(
     path = directory / filename
     path.write_bytes(data)
     return str(path)
+
+
+def crop_around_click(
+    full_screenshot_bytes: bytes,
+    click_x: int,
+    click_y: int,
+    crop_size: int = 200,
+    quality: int = 85,
+) -> bytes:
+    """Crop a region around the click point from a full screenshot JPEG.
+
+    Returns JPEG bytes of the cropped region.
+    """
+    img = Image.open(io.BytesIO(full_screenshot_bytes))
+
+    half = crop_size // 2
+    left = max(0, click_x - half)
+    top = max(0, click_y - half)
+    right = min(img.width, click_x + half)
+    bottom = min(img.height, click_y + half)
+
+    cropped = img.crop((left, top, right, bottom))
+
+    buf = io.BytesIO()
+    cropped.save(buf, format="JPEG", quality=quality)
+    return buf.getvalue()

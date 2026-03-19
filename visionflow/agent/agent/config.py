@@ -16,6 +16,8 @@ class AgentConfig(BaseSettings):
     screenshot_quality: int = 85  # JPEG quality
     screenshot_max_bytes: int = 4 * 1024 * 1024  # 4MB resize threshold
     default_monitor: int = 0
+    gemini_project: str = ""
+    gemini_region: str = "asia-northeast3"
 
 
 def get_config() -> AgentConfig:

@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from shared.step_models import Workflow
+from shared.step_models import Workflow, WorkflowSummary
 
+from ...config import get_config
 from ...schemas.workflow import (
     GenerateWorkflowRequest,
+    GenerateWorkflowResponse,
     UpdateWorkflowRequest,
     WorkflowListItem,
     WorkflowListResponse,
 )
 from ...storage.local import LocalStorage
 from ..deps import get_storage
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
@@ -42,15 +47,19 @@ async def list_workflows(
     return WorkflowListResponse(workflows=items, total=len(items))
 
 
-@router.post("/generate", response_model=Workflow)
+@router.post("/generate", response_model=GenerateWorkflowResponse)
 async def generate_workflow(
     req: GenerateWorkflowRequest,
     storage: LocalStorage = Depends(get_storage),
-) -> Workflow:
-    """Convert recorded events from a session into a workflow (rule-based, Phase 1)."""
+) -> GenerateWorkflowResponse:
+    """Convert recorded events from a session into a workflow (AI or rule-based)."""
     meta = await storage.read_json(f"sessions/{req.session_id}/meta.json")
     if meta is None:
         raise HTTPException(404, "Session not found")
+
+    # Prevent duplicate generation
+    if meta.get("status") == "converted":
+        raise HTTPException(409, f"Session already converted to workflow '{meta.get('workflow_id', '')}'")
 
     events = await storage.read_jsonl(f"sessions/{req.session_id}/events.jsonl")
 
@@ -58,7 +67,45 @@ async def generate_workflow(
     from ...recorder_utils import preprocess_events
     events = preprocess_events(events)
 
-    steps = _events_to_steps(events)
+    # Reject empty sessions
+    if not events:
+        raise HTTPException(400, "Session has no recorded events")
+
+    cfg = get_config()
+    use_ai = req.use_ai and bool(cfg.gemini_project)
+    generation_method = "rule_based"
+    steps = None
+    summary_data = None
+
+    # AI generation with fallback
+    if use_ai:
+        from ...gemini.workflow_generator import generate_summary, generate_workflow_steps
+
+        purpose = meta.get("purpose", "")
+        apps = meta.get("apps", [])
+        exceptions = meta.get("exceptions")
+        screenshots_dir = storage.resolve_path(f"sessions/{req.session_id}/screenshots")
+
+        max_retries = 2
+        for attempt in range(1, max_retries + 1):
+            try:
+                steps = await generate_workflow_steps(
+                    events, screenshots_dir, purpose, apps, exceptions,
+                )
+                generation_method = "ai"
+                logger.info("AI workflow generation succeeded (attempt %d)", attempt)
+                break
+            except Exception:
+                logger.warning("AI generation attempt %d failed", attempt, exc_info=True)
+                if attempt == max_retries:
+                    logger.info("Falling back to rule-based generation")
+
+    # Fallback to rule-based
+    if steps is None:
+        try:
+            steps = _events_to_steps(events)
+        except Exception as e:
+            raise HTTPException(500, f"Failed to convert events to steps: {e}")
 
     workflow_id = f"wf_{uuid.uuid4().hex[:8]}"
     wf = Workflow(
@@ -72,12 +119,30 @@ async def generate_workflow(
     await storage.write_json(f"workflows/{workflow_id}/v1.json", wf_data)
     await storage.write_json(f"workflows/{workflow_id}/latest.json", wf_data)
 
+    # Generate summary (AI only)
+    if generation_method == "ai":
+        try:
+            from ...gemini.workflow_generator import generate_summary
+
+            purpose = meta.get("purpose", "")
+            step_dicts = [s.model_dump(mode="json") if hasattr(s, "model_dump") else s for s in steps]
+            summary_data = await generate_summary(step_dicts, purpose)
+            await storage.write_json(f"workflows/{workflow_id}/summary.json", summary_data)
+            logger.info("Workflow summary generated and saved")
+        except Exception:
+            logger.warning("Summary generation failed", exc_info=True)
+
     # Mark session as converted
     meta["status"] = "converted"
     meta["workflow_id"] = workflow_id
     await storage.write_json(f"sessions/{req.session_id}/meta.json", meta)
 
-    return wf
+    summary = WorkflowSummary.model_validate(summary_data) if summary_data else None
+    return GenerateWorkflowResponse(
+        workflow=wf,
+        summary=summary,
+        generation_method=generation_method,
+    )
 
 
 def _events_to_steps(events: list[dict]) -> list:
@@ -99,6 +164,8 @@ def _events_to_steps(events: list[dict]) -> list:
                 value=f"{ev['x']},{ev['y']}",
                 target_description=f"Element at ({ev['x']}, {ev['y']})",
                 screenshot_ref=ev.get("screenshot_path"),
+                crop_ref=ev.get("crop_path"),
+                fallback_coords={"x": ev["x"], "y": ev["y"]},
                 timeout_sec=10,
                 speed=SpeedMode.NORMAL,
                 on_failure=OnFailure.HUMAN,
@@ -111,6 +178,8 @@ def _events_to_steps(events: list[dict]) -> list:
                 value=f"double:{ev['x']},{ev['y']}",
                 target_description=f"Element at ({ev['x']}, {ev['y']})",
                 screenshot_ref=ev.get("screenshot_path"),
+                crop_ref=ev.get("crop_path"),
+                fallback_coords={"x": ev["x"], "y": ev["y"]},
                 timeout_sec=10,
                 speed=SpeedMode.NORMAL,
                 on_failure=OnFailure.HUMAN,
@@ -169,14 +238,15 @@ def _events_to_steps(events: list[dict]) -> list:
                 on_failure=OnFailure.HUMAN,
             )
         elif ev_type == "window_change":
+            window_title = ev.get("window_title", "")
             step = WorkflowStep(
                 id=step_id,
-                type=StepType.WAIT,
-                description=f"Wait — window: {ev.get('window_title', '')}",
-                value="1",
-                timeout_sec=30,
+                type=StepType.FOCUS_WINDOW,
+                description=f"창 활성화: {window_title}",
+                value=window_title,
+                timeout_sec=10,
                 speed=SpeedMode.NORMAL,
-                on_failure=OnFailure.HUMAN,
+                on_failure=OnFailure.RETRY,
             )
 
         if step:
@@ -246,6 +316,18 @@ async def update_workflow(
     await storage.write_json(f"workflows/{workflow_id}/latest.json", wf_data)
 
     return wf
+
+
+@router.get("/{workflow_id}/summary", response_model=WorkflowSummary)
+async def get_workflow_summary(
+    workflow_id: str,
+    storage: LocalStorage = Depends(get_storage),
+) -> WorkflowSummary:
+    """Return the AI-generated summary for a workflow."""
+    data = await storage.read_json(f"workflows/{workflow_id}/summary.json")
+    if data is None:
+        raise HTTPException(404, "Summary not found")
+    return WorkflowSummary.model_validate(data)
 
 
 @router.delete("/{workflow_id}")

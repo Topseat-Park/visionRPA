@@ -23,6 +23,9 @@ class StepType(StrEnum):
     SCROLL = "scroll"
     DRAG = "drag"
     WAIT = "wait"
+    FILE_OPEN = "file_open"
+    FILE_WRITE = "file_write"
+    FOCUS_WINDOW = "focus_window"
 
 
 class OnFailure(StrEnum):

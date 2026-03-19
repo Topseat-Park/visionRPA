@@ -8,7 +8,7 @@ import { useRecordingStore } from '@/stores/recording-store';
 import { useAgentStatus } from '@/hooks/use-agent-status';
 import { api } from '@/lib/api-client';
 import type { SessionMeta } from '@/types/session';
-import type { Workflow } from '@/types/workflow';
+import type { GenerateWorkflowResponse } from '@/types/workflow';
 
 export function RecordPage() {
   const navigate = useNavigate();
@@ -69,17 +69,17 @@ export function RecordPage() {
   });
 
   const stepLabels: Record<string, string> = {
-    'pre-record': 'Set up context, then start recording',
-    recording: 'Perform your task — all actions are being captured',
-    timeline: 'Review captured events and generate workflow',
-    generating: 'AI is analyzing your recording...',
-    done: 'Workflow generated successfully!',
+    'pre-record': '녹화 전 사전 정보를 입력하세요',
+    recording: '작업을 수행하세요 — 모든 동작이 캡처됩니다',
+    timeline: '캡처된 이벤트를 확인하고 워크플로우를 생성하세요',
+    generating: 'AI가 녹화를 분석하고 있습니다...',
+    done: '워크플로우가 생성되었습니다!',
   };
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">Record Workflow</h2>
+        <h2 className="text-2xl font-bold tracking-tight">워크플로우 녹화</h2>
         <p className="text-muted-foreground">{stepLabels[step]}</p>
       </div>
 
@@ -106,7 +106,7 @@ export function RecordPage() {
 
       {startMut.isError && (
         <p className="text-sm text-destructive">
-          Failed to start: {startMut.error.message}
+          시작 실패: {startMut.error.message}
         </p>
       )}
 
@@ -121,11 +121,11 @@ export function RecordPage() {
             setStep('generating');
             setGenerateError(null);
             try {
-              const wf = await api.post<Workflow>('/workflows/generate', {
+              const result = await api.post<GenerateWorkflowResponse>('/workflows/generate', {
                 session_id: sessionId,
               });
               reset();
-              navigate({ to: '/workflows/$workflowId', params: { workflowId: wf.workflow_id } });
+              navigate({ to: '/workflows/$workflowId', params: { workflowId: result.workflow.workflow_id } });
             } catch (e) {
               setGenerateError(e instanceof Error ? e.message : 'Generation failed');
               setStep('timeline');
@@ -136,12 +136,12 @@ export function RecordPage() {
 
       {step === 'timeline' && !sessionId && (
         <div className="flex flex-col items-center gap-4 py-12">
-          <p className="text-muted-foreground">No recording session found.</p>
+          <p className="text-muted-foreground">녹화 세션을 찾을 수 없습니다.</p>
           <button
             className="text-sm text-primary underline"
             onClick={() => reset()}
           >
-            Start a new recording
+            새 녹화 시작
           </button>
         </div>
       )}
@@ -153,7 +153,7 @@ export function RecordPage() {
       {step === 'generating' && (
         <div className="flex flex-col items-center gap-4 py-12">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-          <p className="text-muted-foreground">Generating workflow from recording...</p>
+          <p className="text-muted-foreground">녹화를 분석하여 워크플로우를 생성하고 있습니다...</p>
         </div>
       )}
     </div>

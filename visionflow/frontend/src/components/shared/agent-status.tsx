@@ -23,7 +23,7 @@ export function AgentStatusIndicator() {
       <span className="text-muted-foreground">{label}</span>
       {data?.recording_event_count != null && data.recording_event_count > 0 && (
         <span className="text-xs text-muted-foreground">
-          ({data.recording_event_count} events)
+          ({data.recording_event_count}개 이벤트)
         </span>
       )}
     </div>

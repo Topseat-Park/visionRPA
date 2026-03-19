@@ -26,6 +26,13 @@ class WorkflowListResponse(BaseModel):
 
 class GenerateWorkflowRequest(BaseModel):
     session_id: str
+    use_ai: bool = True
+
+
+class GenerateWorkflowResponse(BaseModel):
+    workflow: Workflow
+    summary: WorkflowSummary | None = None
+    generation_method: str = "rule_based"  # "ai" | "rule_based"
 
 
 class UpdateWorkflowRequest(BaseModel):

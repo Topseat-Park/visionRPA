@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-router';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Header } from '@/components/layout/header';
+import { ChatPanel } from '@/components/chat/chat-panel';
 
 // ── Root layout ────────────────────────────────────────
 const rootRoute = createRootRoute({

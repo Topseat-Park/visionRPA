@@ -65,4 +65,10 @@ export interface RunMeta {
   dryrun_results?: DryrunStepResult[];
   hitl_request?: HitlRequest;
   computer_use_turns?: ComputerUseTurn[];
+  computer_use_result?: {
+    success: boolean;
+    turns_used: number;
+    final_message: string;
+    error: string | null;
+  };
 }

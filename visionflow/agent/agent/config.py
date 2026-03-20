@@ -20,6 +20,8 @@ class AgentConfig(BaseSettings):
     gemini_region: str = "asia-northeast3"
     computer_use_model: str = "gemini-2.5-computer-use-preview-10-2025"
     computer_use_max_turns: int = 30
+    self_heal_max_turns: int = 10
+    proven_threshold: int = 3
 
 
 def get_config() -> AgentConfig:

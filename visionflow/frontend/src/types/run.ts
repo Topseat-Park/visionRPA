@@ -58,7 +58,7 @@ export interface RunMeta {
   current_step: number;
   total_steps: number;
   error: string | null;
-  mode?: 'normal' | 'dryrun' | 'test_step' | 'computer_use';
+  mode?: 'normal' | 'dryrun' | 'test_step' | 'computer_use' | 'hybrid';
   step_index?: number;
   verification?: Verification;
   diagnosis?: Diagnosis;

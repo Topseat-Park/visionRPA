@@ -19,6 +19,8 @@ import {
   Clock,
   ChevronDown,
   Monitor,
+  Zap,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -151,6 +153,14 @@ export function RunMonitorPage() {
     isActive && Date.now() - new Date(run.started_at).getTime() > POLLING_TIMEOUT_MS;
   const isDryrun = run.mode === 'dryrun';
   const isComputerUse = run.mode === 'computer_use';
+  const isHybrid = run.mode === 'hybrid';
+
+  const convertMut = useMutation({
+    mutationFn: () => api.post<{ workflow_id: string }>(`/runs/${runId}/convert-to-workflow`, {}),
+    onSuccess: (data) => {
+      navigate({ to: '/workflows/$workflowId', params: { workflowId: data.workflow_id } });
+    },
+  });
 
   // Computer Use mode: 2-panel layout
   if (isComputerUse) {
@@ -338,9 +348,21 @@ export function RunMonitorPage() {
               </Button>
             )}
             {!isActive && run.status === 'completed' && (
-              <Badge variant="outline" className="text-green-600">
-                <CheckCircle className="mr-1 h-3 w-3" /> 완료
-              </Badge>
+              <>
+                <Badge variant="outline" className="text-green-600">
+                  <CheckCircle className="mr-1 h-3 w-3" /> 완료
+                </Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => convertMut.mutate()}
+                  disabled={convertMut.isPending}
+                  title="CU 실행 결과를 결정론적 워크플로우로 변환"
+                >
+                  <RefreshCw className="mr-1.5 h-3 w-3" />
+                  {convertMut.isPending ? '변환 중...' : '워크플로우로 변환'}
+                </Button>
+              </>
             )}
             {!isActive && run.status === 'failed' && (
               <Badge variant="destructive">
@@ -371,6 +393,11 @@ export function RunMonitorPage() {
             <Badge variant="secondary" className="gap-1">
               <Eye className="h-3 w-3" />
               드라이런
+            </Badge>
+          )}
+          {isHybrid && (
+            <Badge variant="secondary" className="gap-1">
+              Hybrid
             </Badge>
           )}
           <Badge variant={cfg.variant}>{cfg.label}</Badge>

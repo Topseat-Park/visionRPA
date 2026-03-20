@@ -608,7 +608,12 @@ visionflow_data/             ← PoC: 로컬 폴더 (GCS 전환 시 동일 구�
 - [x] backend API `mode=computer_use` 지원 + 실행 결과 조회
 - [x] frontend "Computer Use로 실행" 버튼 + 실시간 턴 로그 표시
 - [x] agent config: `computer_use_model`, `computer_use_max_turns` 설정
-- **완료 기준**: Computer Use 모드로 간단한 워크플로우 자율 실행 + 턴별 로그 확인
+- [x] Self-Healing — 스텝 실패 시 `on_failure: self_heal`로 Computer Use에 자동 위임, 현재 화면 보고 복구
+- [x] 역변환 워크플로우 생성 — CU 실행 완료 후 액션 로그를 분석하여 cmd/hotkey 우선 결정론적 스텝으로 변환
+- [x] Hybrid 모드 (점진적 자동화) — proven_count/threshold 기반, 미검증 스텝은 CU 실행 → 성공 시 proven_count 증가 → 임계값 도달 시 결정론적 실행
+- [x] backend API: `/runs/{id}/convert-to-workflow` 엔드포인트, `mode=hybrid` 지원
+- [x] frontend: Hybrid 실행 버튼, 스텝별 proven 진행 표시, CU 완료 후 "워크플로우로 변환" 버튼
+- **완료 기준**: Computer Use 모드로 간단한 워크플로우 자율 실행 + 턴별 로그 확인 + self-heal 복구 + 역변환 + hybrid 점진적 최적화
 
 ### Phase 4 — MCP + LangChain AI 에이전트 (예정)
 - [ ] LangChain + LangGraph ReAct 에이전트 루프 도입

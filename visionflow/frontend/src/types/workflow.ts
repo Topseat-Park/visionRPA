@@ -11,7 +11,7 @@ export type StepType =
   | 'file_write'
   | 'focus_window';
 
-export type OnFailure = 'retry' | 'human' | 'skip' | 'abort';
+export type OnFailure = 'retry' | 'human' | 'skip' | 'abort' | 'self_heal';
 export type SpeedMode = 'fast' | 'normal' | 'slow';
 
 export interface WorkflowStep {
@@ -27,6 +27,8 @@ export interface WorkflowStep {
   on_failure: OnFailure;
   screenshot_ref?: string | null;
   crop_ref?: string | null;
+  proven_count?: number;
+  proven_threshold?: number;
 }
 
 export interface Workflow {

@@ -42,8 +42,16 @@ STEP_SCHEMA = types.Schema(
         ),
         "on_failure": types.Schema(
             type="STRING",
-            enum=["retry", "human", "skip", "abort"],
-            description="실패 시 정책",
+            enum=["retry", "human", "skip", "abort", "self_heal"],
+            description="실패 시 정책. self_heal은 Computer Use가 자동 복구 시도",
+        ),
+        "proven_count": types.Schema(
+            type="INTEGER",
+            description="결정론적 성공 횟수 (hybrid 모드용)",
+        ),
+        "proven_threshold": types.Schema(
+            type="INTEGER",
+            description="결정론적 실행으로 전환하는 임계값 (기본 3)",
         ),
         "timeout_sec": types.Schema(
             type="INTEGER",

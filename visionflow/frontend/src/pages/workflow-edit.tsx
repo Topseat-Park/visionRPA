@@ -68,7 +68,7 @@ const STEP_TYPES: StepType[] = [
   'focus_window',
 ];
 
-const ON_FAILURE_OPTIONS: OnFailure[] = ['retry', 'human', 'skip', 'abort'];
+const ON_FAILURE_OPTIONS: OnFailure[] = ['retry', 'human', 'skip', 'abort', 'self_heal'];
 const SPEED_OPTIONS: SpeedMode[] = ['fast', 'normal', 'slow'];
 
 interface VersionEntry {
@@ -338,6 +338,15 @@ export function WorkflowEditPage() {
               Computer Use
             </Button>
             <Button
+              onClick={() => runMut.mutate('hybrid')}
+              disabled={runMut.isPending || editedSteps.length === 0}
+              variant="outline"
+              title="검증된 스텝은 빠르게, 미검증 스텝은 AI로 실행"
+            >
+              <Zap className="mr-2 h-4 w-4" />
+              Hybrid
+            </Button>
+            <Button
               variant="ghost"
               size="icon"
               className="text-destructive hover:bg-destructive/10 hover:text-destructive"
@@ -477,6 +486,18 @@ export function WorkflowEditPage() {
                       <span className="italic text-muted-foreground">설명 없음</span>
                     )}
                   </span>
+                  {step.proven_count != null && step.proven_threshold != null && (
+                    <span
+                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-mono ${
+                        step.proven_count >= step.proven_threshold
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-amber-100 text-amber-700'
+                      }`}
+                      title={`검증 ${step.proven_count}/${step.proven_threshold}`}
+                    >
+                      {step.proven_count}/{step.proven_threshold}
+                    </span>
+                  )}
                   <Badge variant="outline" className="shrink-0 text-xs">
                     {step.on_failure}
                   </Badge>

@@ -142,6 +142,61 @@ async def respond_hitl(
     return {"ok": True}
 
 
+# ── Convert CU run to workflow ────────────────────────────────
+
+@router.post("/{run_id}/convert-to-workflow")
+async def convert_to_workflow(
+    run_id: str,
+    storage: LocalStorage = Depends(get_storage),
+) -> dict:
+    """Convert a completed Computer Use run into a deterministic workflow."""
+    meta = await storage.read_json(f"runs/{run_id}/meta.json")
+    if meta is None:
+        raise HTTPException(404, "Run not found")
+    if meta.get("mode") != "computer_use":
+        raise HTTPException(400, "Only computer_use runs can be converted")
+    if meta.get("status") != "completed":
+        raise HTTPException(400, "Run must be completed to convert")
+
+    cu_result = await storage.read_json(f"runs/{run_id}/computer_use_result.json")
+    if not cu_result:
+        raise HTTPException(404, "Computer Use result not found")
+
+    actions_log = cu_result.get("actions", [])
+    if not actions_log:
+        raise HTTPException(400, "No actions to convert")
+
+    goal = meta.get("workflow_name", "") or "자동 생성 워크플로우"
+
+    from ...gemini.reverse_generator import generate_reverse_workflow
+
+    turns_dir = storage._base / "runs" / run_id / "turns"
+    steps = await generate_reverse_workflow(
+        actions_log=actions_log,
+        goal=goal,
+        screenshots_dir=turns_dir if turns_dir.exists() else None,
+    )
+
+    # Create new workflow
+    workflow_id = f"wf_{uuid.uuid4().hex[:8]}"
+    now = datetime.now(timezone.utc)
+    workflow = {
+        "workflow_id": workflow_id,
+        "name": f"{goal} (CU 변환)",
+        "description": f"Computer Use 실행 결과에서 자동 변환됨 (run: {run_id})",
+        "version": 1,
+        "default_speed": "normal",
+        "steps": steps,
+        "created_at": now.isoformat(),
+        "source_run_id": run_id,
+    }
+
+    await storage.write_json(f"workflows/{workflow_id}/v1.json", workflow)
+    await storage.write_json(f"workflows/{workflow_id}/latest.json", workflow)
+
+    return {"workflow_id": workflow_id, "step_count": len(steps)}
+
+
 # ── Turn screenshots (Computer Use) ──────────────────────────
 
 @router.get("/{run_id}/turns/{filename}")

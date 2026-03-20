@@ -123,6 +123,24 @@ visionflow_data/
 8. 최대 30턴(설정 가능)으로 무한루프를 방지한다
 9. vision_click의 좌표 탐지 시 Computer Use 모델을 Phase 0으로 먼저 시도한다 (fallback: 기존 방식)
 
+### 5.2 Self-Healing (Phase 3.5)
+1. 스텝의 on_failure를 "self_heal"로 설정하면 실패 시 Computer Use에 자동 위임한다
+2. CU가 현재 화면을 보고 해당 스텝의 목표를 자율적으로 달성한다 (최대 10턴)
+3. 성공 시 CU 액션 로그를 저장하고 다음 스텝으로 진행한다
+4. 실패 시 run을 failed로 마킹한다
+
+### 5.3 역변환 워크플로우 생성 (Phase 3.5)
+1. Computer Use 모드로 완료된 run의 "워크플로우로 변환" 버튼을 클릭한다
+2. CU 액션 로그를 Gemini가 분석하여 cmd > hotkey > clipboard_paste 우선순위로 최적화된 스텝을 생성한다
+3. 새 워크플로우가 생성되어 편집 페이지로 이동한다
+
+### 5.4 Hybrid 모드 — 점진적 자동화 (Phase 3.5)
+1. [Hybrid] 버튼 클릭 시 각 스텝의 proven_count를 확인한다
+2. proven_count < proven_threshold (기본 3)인 스텝은 Computer Use로 실행한다
+3. proven_count >= proven_threshold인 스텝은 기존 결정론적 방식으로 빠르게 실행한다
+4. CU 스텝이 성공하면 proven_count가 1 증가한다
+5. 실행할수록 CU 의존도가 줄고 속도와 비용이 개선된다
+
 ### 6. 실행 이력
 1. 전체 실행 이력을 목록으로 확인할 수 있다
 2. 상태별 필터링이 가능하다 (completed, failed, running, aborted)

@@ -118,6 +118,8 @@ class ReplayEngine:
             self._total_steps = 1
         elif mode == "computer_use":
             self._total_steps = 0  # Unknown upfront for computer_use
+        elif mode == "hybrid":
+            self._total_steps = len(workflow_data.get("steps", []))
         else:
             self._total_steps = len(workflow_data.get("steps", []))
 
@@ -185,6 +187,30 @@ class ReplayEngine:
                     dryrun_result = self._dryrun_step(step, display_index)
                     self._save_dryrun_result(display_index, dryrun_result)
                     continue
+
+                # Hybrid mode: proven 스텝은 결정론적, 미검증 스텝은 CU
+                if self._mode == "hybrid":
+                    from ..config import get_config
+                    threshold = step.get("proven_threshold", get_config().proven_threshold)
+                    proven = step.get("proven_count", 0)
+                    if proven < threshold:
+                        logger.info("Hybrid: CU 실행 (proven %d/%d) — step %d", proven, threshold, display_index)
+                        self._step_description = f"[CU] {step.get('description', '')}"
+                        heal_result = self._self_heal_step(step, workflow_data)
+                        if heal_result and heal_result.success:
+                            self._capture_step_screenshot(display_index, "after")
+                            self._save_heal_log(display_index, heal_result)
+                            self._increment_proven_count(workflow_data, i - 1)
+                        else:
+                            error_msg = heal_result.error if heal_result else "CU 실패"
+                            step_context = {"step_index": display_index, "step_type": step.get("type", ""), "description": self._step_description}
+                            self._status = RunStatus.FAILED
+                            self._write_run_meta("failed", error=f"Step {display_index} hybrid CU failed: {error_msg}", step_context=step_context)
+                            self._post_run_verification(workflow_data, "failed", step_context)
+                            return
+                        continue
+                    else:
+                        logger.info("Hybrid: 결정론적 실행 (proven %d/%d) — step %d", proven, threshold, display_index)
 
                 delay = _SPEED_DELAY.get(step.get("speed", default_speed), 0.8)
                 time.sleep(delay)
@@ -260,6 +286,26 @@ class ReplayEngine:
                             "Step %d needs human intervention (continuing for now): %s",
                             display_index, self._step_description,
                         )
+                    elif on_fail == "self_heal":
+                        # Self-healing: Computer Use에 위임
+                        logger.info("Self-healing: CU에 위임 — step %d", display_index)
+                        self._step_description = f"[Self-heal] {step.get('description', '')}"
+                        heal_result = self._self_heal_step(step, workflow_data)
+                        if heal_result and heal_result.success:
+                            step_succeeded = True
+                            self._capture_step_screenshot(display_index, "after")
+                            self._save_heal_log(display_index, heal_result)
+                            logger.info("Self-heal 성공: step %d (%d 턴)", display_index, heal_result.turns_used)
+                        else:
+                            self._status = RunStatus.FAILED
+                            error_msg = heal_result.error if heal_result else "Self-heal 실패"
+                            self._write_run_meta(
+                                "failed",
+                                error=f"Step {display_index} self-heal failed: {error_msg}",
+                                step_context=step_context,
+                            )
+                            self._post_run_verification(workflow_data, "failed", step_context)
+                            return
                     elif on_fail == "retry":
                         # All retries exhausted
                         self._status = RunStatus.FAILED
@@ -929,6 +975,66 @@ class ReplayEngine:
             self._status = RunStatus.FAILED
             self._write_run_meta("failed", error="Computer Use execution error")
             self._post_run_verification(workflow_data, "failed")
+
+    # ── Self-healing + Hybrid helpers ────────────────────────
+
+    def _self_heal_step(self, step: dict, workflow_data: dict):
+        """스텝 실패 시 Computer Use에 위임하여 자율 복구를 시도한다."""
+        try:
+            from ..ai.computer_use import ComputerUseAgent
+            from ..recorder.screenshot import capture_screen
+            from ..config import get_config
+
+            _, s_meta = capture_screen()
+            goal = step.get("description", "") or step.get("value", "")
+            if not goal:
+                return None
+
+            agent = ComputerUseAgent(
+                screen_width=s_meta.capture_width,
+                screen_height=s_meta.capture_height,
+                paths=self._paths,
+                run_id=self._run_id or "unknown",
+                abort_event=self._abort_event,
+            )
+
+            max_turns = get_config().self_heal_max_turns
+            return agent.run(goal, max_turns=max_turns)
+        except Exception:
+            logger.exception("Self-heal 실행 오류")
+            return None
+
+    def _save_heal_log(self, step_index: int, result) -> None:
+        """Self-heal CU 액션 로그를 저장한다."""
+        try:
+            steps_dir = self._paths.run_dir(self._run_id or "unknown") / "steps"
+            steps_dir.mkdir(parents=True, exist_ok=True)
+            path = steps_dir / f"step_{step_index:03d}_heal.json"
+            with path.open("w", encoding="utf-8") as f:
+                json.dump({
+                    "success": result.success,
+                    "turns_used": result.turns_used,
+                    "actions": result.actions_executed,
+                    "final_message": result.final_message,
+                }, f, ensure_ascii=False, default=str)
+        except Exception:
+            logger.warning("Heal 로그 저장 실패: step %d", step_index)
+
+    def _increment_proven_count(self, workflow_data: dict, step_idx: int) -> None:
+        """Hybrid 모드: 성공한 스텝의 proven_count를 증가시키고 워크플로우를 저장한다."""
+        try:
+            steps = workflow_data.get("steps", [])
+            if 0 <= step_idx < len(steps):
+                steps[step_idx]["proven_count"] = steps[step_idx].get("proven_count", 0) + 1
+
+                # 워크플로우 파일 업데이트
+                wf_path = self._paths.workflows / (self._workflow_id or "") / "latest.json"
+                if wf_path.exists():
+                    with wf_path.open("w", encoding="utf-8") as f:
+                        json.dump(workflow_data, f, ensure_ascii=False, default=str)
+                    logger.info("Proven count 업데이트: step %d → %d", step_idx + 1, steps[step_idx]["proven_count"])
+        except Exception:
+            logger.warning("Proven count 업데이트 실패")
 
     def _exec_click(self, value: str) -> None:
         is_double = value.startswith("double:")

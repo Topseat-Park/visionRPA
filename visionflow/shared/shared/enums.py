@@ -33,6 +33,7 @@ class OnFailure(StrEnum):
     HUMAN = "human"
     SKIP = "skip"
     ABORT = "abort"
+    SELF_HEAL = "self_heal"
 
 
 class SpeedMode(StrEnum):

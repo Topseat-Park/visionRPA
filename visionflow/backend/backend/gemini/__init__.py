@@ -9,4 +9,5 @@ Modules:
     verifier            — Result verification + failure diagnosis (Phase 3)
     screen_analyzer     — Screen anomaly detection (Phase 3)
     computer_use        — Computer Use autonomous agent (Phase 3.5)
+    reverse_generator   — CU action log → deterministic workflow conversion (Phase 3.5)
 """

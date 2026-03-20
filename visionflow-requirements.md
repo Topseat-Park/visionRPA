@@ -112,6 +112,17 @@ visionflow_data/
 7. 실행 중 [중단] 버튼으로 즉시 중단할 수 있다
 8. 실행 상태를 실시간으로 모니터링한다 (진행률, 현재 스텝, 상태)
 
+### 5.1 Computer Use 모드 (Phase 3.5)
+1. [Computer Use] 버튼 클릭 시 Gemini Computer Use 모델이 워크플로우 목표를 자율적으로 실행한다
+2. 모델이 스크린샷을 분석하고 click_at, type_text_at, scroll 등 UI 액션을 직접 제안한다
+3. 좌표는 정규화(0-999) → 실제 픽셀로 변환하여 pyautogui로 실행한다
+4. 턴마다 스크린샷을 캡처하고 모델의 reasoning 텍스트를 저장한다
+5. 실행 모니터에서 2패널 레이아웃으로 턴별 로그(좌)와 스크린샷(우)을 실시간 표시한다
+6. 하단에 세션 타이머와 Stop 버튼이 표시된다
+7. safety_decision이 require_confirmation이면 HITL로 사용자 확인을 요청한다
+8. 최대 30턴(설정 가능)으로 무한루프를 방지한다
+9. vision_click의 좌표 탐지 시 Computer Use 모델을 Phase 0으로 먼저 시도한다 (fallback: 기존 방식)
+
 ### 6. 실행 이력
 1. 전체 실행 이력을 목록으로 확인할 수 있다
 2. 상태별 필터링이 가능하다 (completed, failed, running, aborted)
@@ -147,8 +158,10 @@ visionflow_data/
 | GET | `/api/v1/sessions/{id}/screenshots/{file}` | 스크린샷 파일 |
 | GET | `/api/v1/runs` | 실행 이력 목록 |
 | GET | `/api/v1/runs/{id}` | 실행 상세 |
-| POST | `/api/v1/runs` | 실행 시작 |
+| POST | `/api/v1/runs` | 실행 시작 (mode: normal/dryrun/test_step/computer_use) |
 | POST | `/api/v1/runs/{id}/abort` | 실행 중단 |
+| GET | `/api/v1/runs/{id}/turns/{filename}` | Computer Use 턴 스크린샷 |
+| GET | `/api/v1/runs/{id}/steps/{filename}` | 스텝 스크린샷 (before/after) |
 | GET | `/api/v1/agent/status` | Agent 상태 |
 | POST | `/api/v1/agent/command` | Agent 명령 전송 |
 

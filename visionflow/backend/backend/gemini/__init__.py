@@ -7,4 +7,6 @@ Modules:
     workflow_generator  — AI-powered workflow generation (Phase 2)
     replay_agent        — AI-powered replay with tool use (Phase 3)
     verifier            — Result verification + failure diagnosis (Phase 3)
+    screen_analyzer     — Screen anomaly detection (Phase 3)
+    computer_use        — Computer Use autonomous agent (Phase 3.5)
 """

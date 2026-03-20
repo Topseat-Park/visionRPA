@@ -18,6 +18,8 @@ class AgentConfig(BaseSettings):
     default_monitor: int = 0
     gemini_project: str = ""
     gemini_region: str = "asia-northeast3"
+    computer_use_model: str = "gemini-2.5-computer-use-preview-10-2025"
+    computer_use_max_turns: int = 30
 
 
 def get_config() -> AgentConfig:

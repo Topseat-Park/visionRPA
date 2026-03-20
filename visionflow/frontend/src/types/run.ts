@@ -16,6 +16,14 @@ export interface Diagnosis {
   confidence: number;
 }
 
+export interface ComputerUseTurn {
+  turn: number;
+  action: string;
+  args: Record<string, unknown>;
+  result: string;
+  reasoning?: string;
+}
+
 export interface DryrunStepResult {
   step_index: number;
   step_type: string;
@@ -28,6 +36,18 @@ export interface DryrunStepResult {
   method?: 'ai' | 'template' | 'fallback' | null;
 }
 
+export interface HitlRequest {
+  step_index: number;
+  step_description: string;
+  target_description: string;
+  predicted_x: number;
+  predicted_y: number;
+  confidence: number | null;
+  method: 'ai' | 'template' | 'fallback' | null;
+  screenshot_ref: string;
+  requested_at: string;
+}
+
 export interface RunMeta {
   run_id: string;
   workflow_id: string;
@@ -38,8 +58,11 @@ export interface RunMeta {
   current_step: number;
   total_steps: number;
   error: string | null;
-  mode?: 'normal' | 'dryrun';
+  mode?: 'normal' | 'dryrun' | 'test_step' | 'computer_use';
+  step_index?: number;
   verification?: Verification;
   diagnosis?: Diagnosis;
   dryrun_results?: DryrunStepResult[];
+  hitl_request?: HitlRequest;
+  computer_use_turns?: ComputerUseTurn[];
 }

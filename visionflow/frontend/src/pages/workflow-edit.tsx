@@ -11,6 +11,8 @@ import {
   Save,
   Plus,
   Eye,
+  Zap,
+  Monitor,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -151,6 +153,18 @@ export function WorkflowEditPage() {
   const runMut = useMutation({
     mutationFn: (mode: string = 'normal') =>
       api.post<{ run_id: string }>(`/runs?workflow_id=${workflowId}&mode=${mode}`, {}),
+    onSuccess: (data) => {
+      navigate({ to: '/runs/$runId', params: { runId: data.run_id } });
+    },
+    onError: (e: Error) => setRunError(e.message),
+  });
+
+  const testStepMut = useMutation({
+    mutationFn: (stepIndex: number) =>
+      api.post<{ run_id: string }>(
+        `/runs?workflow_id=${workflowId}&mode=test_step&step_index=${stepIndex}`,
+        {},
+      ),
     onSuccess: (data) => {
       navigate({ to: '/runs/$runId', params: { runId: data.run_id } });
     },
@@ -313,6 +327,15 @@ export function WorkflowEditPage() {
             >
               <Eye className="mr-2 h-4 w-4" />
               드라이런
+            </Button>
+            <Button
+              onClick={() => runMut.mutate('computer_use')}
+              disabled={runMut.isPending}
+              variant="outline"
+              title="Gemini Computer Use 모델로 자율 실행"
+            >
+              <Monitor className="mr-2 h-4 w-4" />
+              Computer Use
             </Button>
             <Button
               variant="ghost"
@@ -652,6 +675,16 @@ export function WorkflowEditPage() {
                         title="Move down"
                       >
                         <ArrowDown className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => testStepMut.mutate(idx + 1)}
+                        disabled={testStepMut.isPending || isDirty}
+                        title={isDirty ? '저장 후 테스트 가능' : '이 스텝만 실행'}
+                      >
+                        <Zap className="mr-1.5 h-4 w-4" />
+                        테스트
                       </Button>
                       <div className="flex-1" />
                       <Button

@@ -94,9 +94,29 @@ def find_element_on_screen(
 ) -> tuple[int, int, float]:
     """Find a UI element on screen. Returns (x, y, confidence).
 
+    Phase 0: Try Computer Use model (most accurate)
+    Phase 1: Fall back to Gemini structured output
+
     Raises RuntimeError if Gemini is not configured.
     Raises ImportError if google-genai is not installed.
     """
+    # Phase 0: Try Computer Use model for more accurate detection
+    try:
+        from .computer_use import find_element_with_computer_use
+        result = find_element_with_computer_use(
+            screenshot_bytes, target_description, screen_width, screen_height,
+        )
+        if result is not None:
+            x, y, confidence = result
+            logger.info(
+                "Computer Use found element at (%d, %d) confidence=%.2f for '%s'",
+                x, y, confidence, target_description,
+            )
+            return x, y, confidence
+    except Exception:
+        logger.debug("Computer Use phase 0 unavailable, falling back to structured output")
+
+    # Phase 1: Gemini structured output (original method)
     from google.genai import types
 
     client = _get_client()

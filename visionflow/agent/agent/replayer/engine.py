@@ -44,6 +44,9 @@ class ReplayEngine:
         self._thread: threading.Thread | None = None
         self._abort_event = threading.Event()
         self._mode: str = "normal"
+        self._step_index_override: int | None = None  # test_step mode
+        self._hitl_pending: bool = False
+        self._hitl_request_data: dict | None = None
 
     # ── Public properties read by Heartbeat ──────────────
 
@@ -75,9 +78,23 @@ class ReplayEngine:
     def is_running(self) -> bool:
         return self._status == RunStatus.RUNNING
 
+    @property
+    def hitl_pending(self) -> bool:
+        return self._hitl_pending
+
+    @property
+    def hitl_request_data(self) -> dict | None:
+        return self._hitl_request_data
+
     # ── Control ───────────────────────────────────────────
 
-    def start(self, run_id: str, workflow_id: str, mode: str = "normal") -> None:
+    def start(
+        self,
+        run_id: str,
+        workflow_id: str,
+        mode: str = "normal",
+        step_index: int | None = None,
+    ) -> None:
         """Load workflow from disk and start replay in background thread."""
         wf_path = self._paths.workflows / workflow_id / "latest.json"
         if not wf_path.exists():
@@ -89,10 +106,20 @@ class ReplayEngine:
         self._run_id = run_id
         self._workflow_id = workflow_id
         self._current_step = 0
-        self._total_steps = len(workflow_data.get("steps", []))
         self._status = RunStatus.RUNNING
         self._abort_event.clear()
         self._mode = mode
+        self._step_index_override = step_index
+        self._hitl_pending = False
+        self._hitl_request_data = None
+
+        # For test_step, only count the one step
+        if mode == "test_step" and step_index is not None:
+            self._total_steps = 1
+        elif mode == "computer_use":
+            self._total_steps = 0  # Unknown upfront for computer_use
+        else:
+            self._total_steps = len(workflow_data.get("steps", []))
 
         self._thread = threading.Thread(
             target=self._execute,
@@ -101,7 +128,7 @@ class ReplayEngine:
             name="replayer",
         )
         self._thread.start()
-        logger.info("Replay started: run=%s workflow=%s steps=%d mode=%s", run_id, workflow_id, self._total_steps, mode)
+        logger.info("Replay started: run=%s workflow=%s steps=%d mode=%s step_index=%s", run_id, workflow_id, self._total_steps, mode, step_index)
 
     def abort(self) -> None:
         self._abort_event.set()
@@ -117,35 +144,65 @@ class ReplayEngine:
     # ── Internal execution ────────────────────────────────
 
     def _execute(self, workflow_data: dict) -> None:
+        # Computer Use mode: delegate to ComputerUseAgent
+        if self._mode == "computer_use":
+            self._execute_computer_use(workflow_data)
+            return
+
         steps = workflow_data.get("steps", [])
         default_speed = workflow_data.get("default_speed", "normal")
+
+        # test_step mode: only run the specified step
+        if self._mode == "test_step" and self._step_index_override is not None:
+            idx = self._step_index_override - 1  # 1-based → 0-based
+            if 0 <= idx < len(steps):
+                steps = [steps[idx]]
+            else:
+                self._status = RunStatus.FAILED
+                self._write_run_meta("failed", error=f"Step index {self._step_index_override} out of range")
+                return
 
         # Write run meta with "running" status
         self._write_run_meta("running")
 
         try:
             for i, step in enumerate(steps, start=1):
+                # For test_step, use original index for display
+                display_index = self._step_index_override if self._mode == "test_step" else i
+
                 if self._abort_event.is_set():
                     self._status = RunStatus.ABORTED
                     self._write_run_meta("aborted")
                     self._post_run_verification(workflow_data, "aborted")
                     return
 
-                self._current_step = i
+                self._current_step = display_index
                 self._step_description = step.get("description", "")
-                logger.info("Step %d/%d: %s", i, len(steps), self._step_description)
+                logger.info("Step %d/%d: %s", display_index, len(steps), self._step_description)
 
                 # Dry-run mode: detect targets without executing
                 if self._mode == "dryrun":
-                    dryrun_result = self._dryrun_step(step, i)
-                    self._save_dryrun_result(i, dryrun_result)
+                    dryrun_result = self._dryrun_step(step, display_index)
+                    self._save_dryrun_result(display_index, dryrun_result)
                     continue
 
                 delay = _SPEED_DELAY.get(step.get("speed", default_speed), 0.8)
                 time.sleep(delay)
 
                 # Capture before screenshot
-                self._capture_step_screenshot(i, "before")
+                self._capture_step_screenshot(display_index, "before")
+
+                # Gemini screen anomaly check (before each step)
+                anomaly_handled = self._check_screen_anomalies(step)
+                if anomaly_handled == "abort":
+                    self._status = RunStatus.FAILED
+                    self._write_run_meta("failed", error=f"Step {display_index}: screen anomaly requires human intervention")
+                    self._post_run_verification(workflow_data, "failed", {
+                        "step_index": display_index,
+                        "step_type": step.get("type", ""),
+                        "description": self._step_description,
+                    })
+                    return
 
                 on_fail = step.get("on_failure", "human")
                 max_attempts = 3 if on_fail == "retry" else 1
@@ -165,11 +222,11 @@ class ReplayEngine:
                     except Exception:
                         logger.exception(
                             "Step %d failed (attempt %d/%d): %s",
-                            i, attempt, max_attempts, self._step_description,
+                            display_index, attempt, max_attempts, self._step_description,
                         )
                         if on_fail == "retry" and attempt < max_attempts:
                             backoff = delay * attempt
-                            logger.info("Retrying step %d in %.1fs...", i, backoff)
+                            logger.info("Retrying step %d in %.1fs...", display_index, backoff)
                             time.sleep(backoff)
                             continue
                         # Not a retry case or retries exhausted — fall through
@@ -177,11 +234,11 @@ class ReplayEngine:
 
                 if step_succeeded:
                     # Capture after screenshot on success
-                    self._capture_step_screenshot(i, "after")
+                    self._capture_step_screenshot(display_index, "after")
                 else:
                     # Step failed after all attempts
                     step_context = {
-                        "step_index": i,
+                        "step_index": display_index,
                         "step_type": step.get("type", ""),
                         "description": self._step_description,
                     }
@@ -189,26 +246,26 @@ class ReplayEngine:
                         self._status = RunStatus.FAILED
                         self._write_run_meta(
                             "failed",
-                            error=f"Step {i} failed",
+                            error=f"Step {display_index} failed",
                             step_context=step_context,
                         )
                         self._post_run_verification(workflow_data, "failed", step_context)
                         return
                     elif on_fail == "skip":
                         logger.warning(
-                            "Skipping failed step %d: %s", i, self._step_description,
+                            "Skipping failed step %d: %s", display_index, self._step_description,
                         )
                     elif on_fail == "human":
                         logger.warning(
                             "Step %d needs human intervention (continuing for now): %s",
-                            i, self._step_description,
+                            display_index, self._step_description,
                         )
                     elif on_fail == "retry":
                         # All retries exhausted
                         self._status = RunStatus.FAILED
                         self._write_run_meta(
                             "failed",
-                            error=f"Step {i} failed after {max_attempts} retries",
+                            error=f"Step {display_index} failed after {max_attempts} retries",
                             step_context=step_context,
                         )
                         self._post_run_verification(workflow_data, "failed", step_context)
@@ -428,12 +485,25 @@ class ReplayEngine:
         return {"x": x, "y": y, "confidence": confidence, "method": method}
 
     def _run_vision_click(self, step: dict) -> None:
-        """Execute a vision_click step: AI vision → OpenCV template → fallback coords."""
+        """Execute a vision_click step with HITL: find target → ask user → click."""
         result = self._find_click_target(step)
         x, y = result["x"], result["y"]
 
         if x is None or y is None:
             raise RuntimeError(f"Cannot determine click coordinates for step: {step.get('description', '?')}")
+
+        # HITL flow: pause for human approval before clicking
+        hitl_response = self._request_hitl(step, x, y, result.get("confidence"), result.get("method"))
+        if hitl_response:
+            action = hitl_response.get("action", "approve")
+            if action == "cancel":
+                raise RuntimeError(f"HITL cancelled by user: {step.get('description', '?')}")
+            elif action == "modify":
+                x = hitl_response.get("modified_x", x)
+                y = hitl_response.get("modified_y", y)
+                logger.info("HITL modified coordinates to (%d, %d)", x, y)
+            else:
+                logger.info("HITL approved click at (%d, %d)", x, y)
 
         value = step.get("value", "")
         is_double = value.startswith("double:") if value else False
@@ -629,6 +699,236 @@ class ReplayEngine:
                 json.dump(result, f, ensure_ascii=False)
         except Exception:
             logger.warning("Failed to save dryrun result for step %d", step_index)
+
+    # ── HITL: Human-in-the-Loop ─────────────────────────────
+
+    def _request_hitl(
+        self,
+        step: dict,
+        predicted_x: int,
+        predicted_y: int,
+        confidence: float | None,
+        method: str | None,
+    ) -> dict | None:
+        """Request human approval for a vision_click step.
+
+        Writes hitl_request.json, waits for hitl_response.json.
+        Returns response dict or None if HITL is skipped (timeout / no run dir).
+        """
+        run_dir = self._paths.run_dir(self._run_id or "unknown")
+        request_path = run_dir / "hitl_request.json"
+        response_path = run_dir / "hitl_response.json"
+
+        # Clean up any leftover response from a previous step
+        if response_path.exists():
+            response_path.unlink(missing_ok=True)
+
+        from datetime import datetime, timezone
+
+        request_data = {
+            "step_index": self._current_step,
+            "step_description": step.get("description", ""),
+            "target_description": step.get("target_description", ""),
+            "predicted_x": predicted_x,
+            "predicted_y": predicted_y,
+            "confidence": confidence,
+            "method": method,
+            "screenshot_ref": f"steps/step_{self._current_step:03d}_before.jpg",
+            "requested_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # Write request and update state
+        try:
+            run_dir.mkdir(parents=True, exist_ok=True)
+            with request_path.open("w", encoding="utf-8") as f:
+                json.dump(request_data, f, ensure_ascii=False)
+            self._hitl_pending = True
+            self._hitl_request_data = request_data
+            self._status = RunStatus.PAUSED
+            logger.info("HITL request written for step %d, waiting for response...", self._current_step)
+        except Exception:
+            logger.warning("Failed to write HITL request, proceeding without approval")
+            return None
+
+        # Poll for response (max 5 minutes)
+        hitl_timeout = 300
+        poll_interval = 1.0
+        elapsed = 0.0
+        response = None
+
+        while elapsed < hitl_timeout:
+            if self._abort_event.is_set():
+                break
+            if response_path.exists():
+                try:
+                    with response_path.open("r", encoding="utf-8") as f:
+                        response = json.load(f)
+                    break
+                except Exception:
+                    pass
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+
+        # Clean up
+        self._hitl_pending = False
+        self._hitl_request_data = None
+        self._status = RunStatus.RUNNING
+        request_path.unlink(missing_ok=True)
+        response_path.unlink(missing_ok=True)
+
+        if response is None:
+            logger.warning("HITL timed out after %.0fs, auto-approving", hitl_timeout)
+        return response
+
+    # ── Gemini screen anomaly detection ───────────────────────
+
+    def _check_screen_anomalies(self, step: dict) -> str | None:
+        """Check for screen anomalies (popups, login expiry, etc.) before executing a step.
+
+        Returns None if normal, "abort" if human intervention needed, or handles anomaly.
+        Max 5 checks per step to prevent infinite loops.
+        """
+        max_checks = 5
+        for check_num in range(1, max_checks + 1):
+            try:
+                img_data, _meta = capture_screen()
+            except Exception:
+                return None
+
+            loop = asyncio.new_event_loop()
+            try:
+                from backend.gemini.screen_analyzer import analyze_screen
+                analysis = loop.run_until_complete(
+                    analyze_screen(img_data, step.get("description", ""))
+                )
+            except Exception:
+                logger.debug("Screen analysis unavailable, proceeding")
+                return None
+            finally:
+                loop.close()
+
+            if analysis is None:
+                return None
+
+            state = analysis.get("screen_state", "normal")
+            action = analysis.get("suggested_action", "proceed")
+            logger.info(
+                "Screen analysis (check %d/%d): state=%s action=%s desc=%s",
+                check_num, max_checks, state, action, analysis.get("description", ""),
+            )
+
+            if state == "normal" or action == "proceed":
+                return None
+
+            if action == "dismiss_popup":
+                # Try to dismiss the popup
+                dismiss_keys = analysis.get("dismiss_keys", "escape")
+                try:
+                    keys = [k.strip() for k in dismiss_keys.split("+") if k.strip()]
+                    if keys:
+                        pyautogui.hotkey(*keys)
+                        logger.info("Dismissed popup with keys: %s", dismiss_keys)
+                        time.sleep(0.5)
+                        continue  # Re-check screen
+                except Exception:
+                    logger.warning("Failed to dismiss popup with keys: %s", dismiss_keys)
+
+            elif action == "wait":
+                # Loading detected — wait up to 30 seconds
+                logger.info("Loading detected, waiting up to 30s...")
+                wait_elapsed = 0.0
+                while wait_elapsed < 30.0:
+                    if self._abort_event.is_set():
+                        return "abort"
+                    time.sleep(2.0)
+                    wait_elapsed += 2.0
+                    # Re-check if loading is done
+                    try:
+                        img2, _ = capture_screen()
+                        loop2 = asyncio.new_event_loop()
+                        try:
+                            re_analysis = loop2.run_until_complete(
+                                analyze_screen(img2, step.get("description", ""))
+                            )
+                        finally:
+                            loop2.close()
+                        if re_analysis and re_analysis.get("screen_state") == "normal":
+                            logger.info("Loading complete after %.1fs", wait_elapsed)
+                            return None
+                    except Exception:
+                        pass
+                logger.warning("Loading wait timed out after 30s")
+                return None  # Proceed anyway
+
+            elif action == "request_human":
+                logger.warning("Screen anomaly requires human intervention: %s", analysis.get("description", ""))
+                return "abort"
+
+        # Max checks exhausted
+        logger.warning("Screen anomaly persists after %d checks, requiring human intervention", max_checks)
+        return "abort"
+
+    def _execute_computer_use(self, workflow_data: dict) -> None:
+        """Run workflow via Computer Use autonomous agent."""
+        self._write_run_meta("running")
+
+        try:
+            from ..ai.computer_use import ComputerUseAgent
+            from ..recorder.screenshot import capture_screen
+
+            # Get screen dimensions
+            _, s_meta = capture_screen()
+
+            goal = workflow_data.get("description", "") or workflow_data.get("name", "")
+            if not goal:
+                self._status = RunStatus.FAILED
+                self._write_run_meta("failed", error="No goal description for computer_use mode")
+                return
+
+            agent = ComputerUseAgent(
+                screen_width=s_meta.capture_width,
+                screen_height=s_meta.capture_height,
+                paths=self._paths,
+                run_id=self._run_id or "unknown",
+                abort_event=self._abort_event,
+            )
+
+            self._step_description = f"Computer Use: {goal[:80]}"
+            result = agent.run(goal)
+
+            # Save Computer Use result
+            run_dir = self._paths.run_dir(self._run_id or "unknown")
+            run_dir.mkdir(parents=True, exist_ok=True)
+
+            import json as _json
+            cu_result_path = run_dir / "computer_use_result.json"
+            with cu_result_path.open("w", encoding="utf-8") as f:
+                _json.dump({
+                    "success": result.success,
+                    "turns_used": result.turns_used,
+                    "actions": result.actions_executed,
+                    "final_message": result.final_message,
+                    "error": result.error,
+                }, f, ensure_ascii=False, default=str)
+
+            if result.success:
+                self._status = RunStatus.COMPLETED
+                self._total_steps = result.turns_used
+                self._current_step = result.turns_used
+                self._write_run_meta("completed")
+                logger.info("Computer Use completed: %d turns", result.turns_used)
+                self._post_run_verification(workflow_data, "completed")
+            else:
+                self._status = RunStatus.FAILED
+                self._write_run_meta("failed", error=result.error or "Computer Use failed")
+                logger.warning("Computer Use failed: %s", result.error)
+                self._post_run_verification(workflow_data, "failed")
+
+        except Exception:
+            logger.exception("Computer Use execution error")
+            self._status = RunStatus.FAILED
+            self._write_run_meta("failed", error="Computer Use execution error")
+            self._post_run_verification(workflow_data, "failed")
 
     def _exec_click(self, value: str) -> None:
         is_double = value.startswith("double:")

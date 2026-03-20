@@ -138,3 +138,63 @@ VERIFICATION_SCHEMA = types.Schema(
     },
     required=["success", "evidence"],
 )
+
+
+# ── Screen Anomaly Analysis ────────────────────────────────────
+
+# ── Computer Use Result ────────────────────────────────────────
+
+COMPUTER_USE_TURN_SCHEMA = types.Schema(
+    type="OBJECT",
+    properties={
+        "turn": types.Schema(type="INTEGER", description="턴 번호"),
+        "action": types.Schema(type="STRING", description="실행한 액션 이름"),
+        "args": types.Schema(type="STRING", description="액션 인자 (JSON 문자열)"),
+        "result": types.Schema(type="STRING", description="실행 결과"),
+    },
+    required=["turn", "action", "result"],
+)
+
+COMPUTER_USE_RESULT_SCHEMA = types.Schema(
+    type="OBJECT",
+    properties={
+        "success": types.Schema(
+            type="BOOLEAN", description="목표 달성 여부",
+        ),
+        "turns_used": types.Schema(
+            type="INTEGER", description="사용한 턴 수",
+        ),
+        "final_message": types.Schema(
+            type="STRING", description="최종 완료 메시지",
+        ),
+        "error": types.Schema(
+            type="STRING", description="에러 메시지 (실패 시)",
+        ),
+    },
+    required=["success", "turns_used"],
+)
+
+
+SCREEN_ANALYSIS_SCHEMA = types.Schema(
+    type="OBJECT",
+    properties={
+        "screen_state": types.Schema(
+            type="STRING",
+            enum=["normal", "popup", "login_expired", "loading", "error"],
+            description="현재 화면 상태 분류",
+        ),
+        "description": types.Schema(
+            type="STRING", description="화면 상태 설명 (자연어)",
+        ),
+        "suggested_action": types.Schema(
+            type="STRING",
+            enum=["proceed", "dismiss_popup", "wait", "request_human"],
+            description="권장 대응 방법",
+        ),
+        "dismiss_keys": types.Schema(
+            type="STRING",
+            description="팝업 닫기 키 조합 (예: 'enter', 'escape', 'alt+f4'). dismiss_popup일 때만 사용",
+        ),
+    },
+    required=["screen_state", "description", "suggested_action"],
+)

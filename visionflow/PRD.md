@@ -582,15 +582,33 @@ visionflow_data/             ← PoC: 로컬 폴더 (GCS 전환 시 동일 구�
 - [x] `crop_ref` 필드 — 워크플로우 스텝에 크롭 이미지 경로 저장
 - **완료 기준**: 녹화 중 앱 전환 감지 + focus_window 스텝 생성/실행 가능 + 창 이동 시에도 OpenCV로 클릭 위치 정확 탐지
 
-### Phase 3 — Replay 고도화 (진행 중)
-- [ ] vision_click Human-in-the-Loop UI
+### Phase 3 — Replay 고도화 (완료)
+- [x] vision_click Human-in-the-Loop UI — 파일 기반 HITL (hitl_request/response.json), Run Monitor에서 승인/수정/취소
 - [x] 스마트 대기 (wait_condition 1초 간격 폴링 루프)
-- [ ] Gemini 자율 분기
+- [x] Gemini 자율 분기 — 스텝 실행 전 화면 분석 (popup→자동 닫기, loading→대기, login_expired→human)
 - [x] 결과 검증 (success/failure) — Gemini 기반 최종 화면 검증 + verification.json
 - [x] 실패 자가 진단 리포트 — Gemini 기반 원인 분석 + 수정 제안 + diagnosis.json
 - [x] 드라이런 모드 — 실제 실행 없이 vision_click 좌표 탐지 결과 반환
-- [ ] 스텝별 [단독 테스트]
+- [x] 스텝별 [단독 테스트] — 워크플로우 편집에서 개별 스텝 즉시 실행
 - **완료 기준**: 동일 PC 재실행 성공률 ≥ 70% + 실패 진단 리포트 생성
+
+### Phase 3.5 — Gemini Computer Use 통합 (완료, API 사양 준수 리팩토링)
+- [x] Computer Use 에이전트 루프 (`agent/ai/computer_use.py`) — 공식 Gemini Computer Use API 사양 준수
+- [x] `types.Tool(computer_use=types.ComputerUse(environment=ENVIRONMENT_BROWSER, excluded_predefined_functions=[...]))` 도구 설정
+- [x] 데스크톱 환경: `open_web_browser`, `search`, `go_forward` 제외 (navigate, go_back은 유지)
+- [x] FunctionResponse에 스크린샷 blob(`inline_data=types.Blob`) 포함
+- [x] 정규화 좌표(0-999) → 실제 픽셀 변환 + pyautogui 액션 실행
+- [x] 전체 액션 지원: click_at, hover_at, type_text_at(press_enter/clear_before_typing), key_combination(문자열 "Control+C"), scroll_document(상하좌우), scroll_at(magnitude), drag_and_drop(destination_x/y), navigate, go_back, go_forward, open_web_browser, search, wait_5_seconds
+- [x] safety_decision 처리 — args 내부 `safety_decision.decision`/`explanation` 파싱, USER_CONFIRM 시 HITL 연동, 확인 후 `safety_acknowledgement: "true"` 전송
+- [x] `thinking_config=types.ThinkingConfig(include_thoughts=True)` 적용
+- [x] 병렬 function_call 지원 — 모델이 여러 function_call 반환 시 모두 실행 후 각각 FunctionResponse 전송
+- [x] 추론 텍스트 로그 저장 (`reasoning_log.txt`), 턴별 스크린샷, 액션 로그
+- [x] vision_finder Phase 0 — Computer Use 도구 설정으로 더 정확한 좌표 탐지 (실패 시 기존 방식 fallback)
+- [x] replayer engine `computer_use` 모드 — 워크플로우 목표만 주면 자율 실행
+- [x] backend API `mode=computer_use` 지원 + 실행 결과 조회
+- [x] frontend "Computer Use로 실행" 버튼 + 실시간 턴 로그 표시
+- [x] agent config: `computer_use_model`, `computer_use_max_turns` 설정
+- **완료 기준**: Computer Use 모드로 간단한 워크플로우 자율 실행 + 턴별 로그 확인
 
 ### Phase 4 — MCP + LangChain AI 에이전트 (예정)
 - [ ] LangChain + LangGraph ReAct 에이전트 루프 도입

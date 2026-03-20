@@ -188,12 +188,13 @@ class Agent:
         run_id = cmd.payload.get("run_id", f"run_{uuid.uuid4().hex[:8]}")
         workflow_id = cmd.payload.get("workflow_id", "")
         mode = cmd.payload.get("mode", "normal")
+        step_index = cmd.payload.get("step_index")
         if not workflow_id:
             raise ValueError("start_run requires workflow_id in payload")
         # Reset replayer if a previous run completed
         if not self._replayer.is_running:
             self._replayer.reset()
-        self._replayer.start(run_id, workflow_id, mode=mode)
+        self._replayer.start(run_id, workflow_id, mode=mode, step_index=step_index)
 
     # ── Shutdown ────────────────────────────────────────────────
 

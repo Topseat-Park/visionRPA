@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import psutil
 
 from shared.enums import AgentState, RunStatus
-from shared.ipc_models import AgentStatus, RecordingDetails, ReplayDetails, SystemInfo
+from shared.ipc_models import AgentStatus, HitlRequest, RecordingDetails, ReplayDetails, SystemInfo
 
 from ..ipc.base import ABCTransport
 from ..recorder.engine import RecordingEngine
@@ -70,6 +70,8 @@ class Heartbeat:
         rec_state = self._recorder.state
         if rec_state in (RecordingState.RECORDING, RecordingState.PAUSED):
             agent_state = AgentState.RECORDING
+        elif self._replayer.hitl_pending:
+            agent_state = AgentState.WAITING_HITL
         elif self._replayer.is_running:
             agent_state = AgentState.REPLAYING
         else:
@@ -105,6 +107,19 @@ class Heartbeat:
         except Exception:
             pass
 
+        # Build HITL request if pending
+        hitl = None
+        hitl_data = self._replayer.hitl_request_data
+        if hitl_data:
+            hitl = HitlRequest(
+                step_id=hitl_data.get("step_index", 0),
+                screenshot_path=hitl_data.get("screenshot_ref", ""),
+                predicted_x=hitl_data.get("predicted_x", 0),
+                predicted_y=hitl_data.get("predicted_y", 0),
+                target_description=hitl_data.get("target_description", ""),
+                confidence=hitl_data.get("confidence"),
+            )
+
         return AgentStatus(
             timestamp=datetime.now(timezone.utc),
             agent_state=agent_state,
@@ -112,6 +127,7 @@ class Heartbeat:
             last_command_ack=True,
             recording=recording,
             replay=replay,
+            hitl_request=hitl,
             system=sys_info,
             error=self._error,
         )
